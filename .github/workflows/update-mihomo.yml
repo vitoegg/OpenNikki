@@ -2,7 +2,7 @@ name: Update Mihomo
 
 on:
   schedule:
-    # 每天 北京时间 8:30 定时执行
+    # 每天 北京时间 8:30 定时执行（UTC 00:30）
     - cron: '30 0 * * *'
   workflow_dispatch:
     # 支持手动触发
@@ -11,130 +11,194 @@ permissions:
   contents: write
   actions: write
 
+concurrency:
+  group: update-mihomo
+  cancel-in-progress: false
+
 jobs:
   update:
     name: Check and Update Mihomo
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+    env:
+      MAKEFILE_PATH: nikki/Makefile
+      UPSTREAM_REPO: MetaCubeX/mihomo
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get current version
-        id: current
+      - name: Determine versions
+        id: meta
         run: |
-          # 从 Makefile 中提取当前版本
-          CURRENT_VERSION=$(grep -oP 'PKG_SOURCE_VERSION:=\K.*' nikki/Makefile)
-          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "当前版本: $CURRENT_VERSION"
+          set -euo pipefail
 
-      - name: Get latest release from upstream
-        id: upstream
-        run: |
-          # 获取 MetaCubeX/mihomo 最新 release 信息
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
-          
-          # 获取版本号（tag）
-          LATEST_VERSION=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
-          echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-          echo "上游最新版本: $LATEST_VERSION"
-          
-          # 获取发布日期并格式化为 YYYY.MM.DD
-          PUBLISHED_AT=$(echo "$RELEASE_INFO" | jq -r '.published_at')
-          PKG_VERSION=$(date -d "$PUBLISHED_AT" +%Y.%m.%d)
-          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
-          echo "发布日期: $PKG_VERSION"
+          makefile="${MAKEFILE_PATH}"
 
-      - name: Compare versions
-        id: compare
-        run: |
-          if [ "${{ steps.current.outputs.version }}" = "${{ steps.upstream.outputs.version }}" ]; then
+          pkg_name="$(awk -F':=' '/^[[:space:]]*PKG_NAME:=/{print $2; exit}' "${makefile}" | tr -d ' \t\r\n')"
+          current_version="$(awk -F':=' '/^[[:space:]]*PKG_SOURCE_VERSION:=/{print $2; exit}' "${makefile}" | tr -d ' \t\r\n')"
+
+          if [ -z "${pkg_name}" ] || [ -z "${current_version}" ]; then
+            echo "无法从 ${makefile} 读取 PKG_NAME 或 PKG_SOURCE_VERSION"
+            exit 1
+          fi
+
+          echo "pkg_name=${pkg_name}" >> "${GITHUB_OUTPUT}"
+          echo "current_version=${current_version}" >> "${GITHUB_OUTPUT}"
+          echo "当前版本: ${current_version}"
+
+          release_url="https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest"
+          echo "获取上游 release: ${release_url}"
+
+          max_retries=3
+          retry_delay=10
+          release_info=""
+          latest_version=""
+          published_at=""
+
+          for attempt in $(seq 1 "${max_retries}"); do
+            echo "第 ${attempt}/${max_retries} 次尝试获取 release 信息..."
+
+            if release_info="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" "${release_url}" 2>/dev/null)"; then
+              latest_version="$(echo "${release_info}" | jq -r '.tag_name // empty' 2>/dev/null || true)"
+              published_at="$(echo "${release_info}" | jq -r '.published_at // empty' 2>/dev/null || true)"
+              if [ -n "${latest_version}" ] && [ -n "${published_at}" ]; then
+                break
+              fi
+            fi
+
+            release_info=""
+            latest_version=""
+            published_at=""
+
+            if [ "${attempt}" -lt "${max_retries}" ]; then
+              echo "获取失败，${retry_delay} 秒后重试..."
+              sleep "${retry_delay}"
+            fi
+          done
+
+          if [ -z "${latest_version}" ] || [ -z "${published_at}" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "need_update=false" >> "${GITHUB_OUTPUT}"
+            echo "无法获取上游版本信息，跳过本次更新"
+            if [ -n "${release_info}" ]; then
+              echo "API 返回内容:"
+              echo "${release_info}" | jq '.' 2>/dev/null || echo "${release_info}"
+            fi
+            exit 0
+          fi
+
+          pkg_version="$(date -d "${published_at}" +%Y.%m.%d)"
+
+          echo "skip=false" >> "${GITHUB_OUTPUT}"
+          echo "latest_version=${latest_version}" >> "${GITHUB_OUTPUT}"
+          echo "pkg_version=${pkg_version}" >> "${GITHUB_OUTPUT}"
+          echo "上游最新版本: ${latest_version}"
+          echo "发布日期: ${pkg_version}"
+
+          if [ "${current_version}" = "${latest_version}" ]; then
+            echo "need_update=false" >> "${GITHUB_OUTPUT}"
             echo "版本相同，无需更新"
-            echo "need_update=false" >> $GITHUB_OUTPUT
           else
+            echo "need_update=true" >> "${GITHUB_OUTPUT}"
             echo "发现新版本，需要更新"
-            echo "need_update=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Calculate new hash (OpenWrt compatible)
-        if: steps.compare.outputs.need_update == 'true'
+        if: steps.meta.outputs.need_update == 'true'
         id: hash
         run: |
-          VERSION="${{ steps.upstream.outputs.version }}"
-          PKG_NAME="nikki"
-          # 使用新的 PKG_VERSION（release 发布日期）
-          PKG_VERSION="${{ steps.upstream.outputs.pkg_version }}"
-          SUBDIR="${PKG_NAME}-${PKG_VERSION}"
-          
+          set -euo pipefail
+
+          version="${{ steps.meta.outputs.latest_version }}"
+          pkg_name="${{ steps.meta.outputs.pkg_name }}"
+          pkg_version="${{ steps.meta.outputs.pkg_version }}"
+          subdir="${pkg_name}-${pkg_version}"
+
           echo "开始计算 hash..."
-          echo "VERSION: $VERSION"
-          echo "PKG_VERSION: $PKG_VERSION"
-          echo "SUBDIR: $SUBDIR"
-          
-          # 创建临时目录
-          WORK_DIR=$(mktemp -d)
-          cd "$WORK_DIR"
-          
-          # 1. 使用 GitHub tarball API 下载（与 OpenWrt 相同）
+          echo "VERSION: ${version}"
+          echo "PKG_VERSION: ${pkg_version}"
+          echo "SUBDIR: ${subdir}"
+
+          work_dir="$(mktemp -d)"
+          cleanup() { rm -rf "${work_dir}"; }
+          trap cleanup EXIT
+
+          cd "${work_dir}"
+
           echo "下载源码..."
-          curl -sL "https://api.github.com/repos/MetaCubeX/mihomo/tarball/${VERSION}" -o source.tar.gz
-          
-          # 2. 解压
+          curl -fsSL -L --retry 3 --retry-delay 10 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${UPSTREAM_REPO}/tarball/${version}" -o source.tar.gz
+
           echo "解压源码..."
-          mkdir untar
+          mkdir -p untar
           tar -xzf source.tar.gz -C untar --no-same-permissions
-          
-          # 3. 获取解压后的目录名并重命名
-          EXTRACTED_DIR=$(ls untar)
-          echo "原始目录: $EXTRACTED_DIR"
-          mv "untar/$EXTRACTED_DIR" "untar/$SUBDIR"
-          
-          # 4. 获取 commit 时间戳（用于可重复构建）
+
+          extracted_path="$(find untar -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
+          if [ -z "${extracted_path}" ]; then
+            echo "未找到解压目录"
+            exit 1
+          fi
+
+          echo "原始目录: $(basename "${extracted_path}")"
+          mv "${extracted_path}" "untar/${subdir}"
+
           echo "获取 commit 时间戳..."
-          COMMIT_TS=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/commits/${VERSION}" | jq -r '.commit.committer.date')
-          TIMESTAMP=$(date -d "$COMMIT_TS" +%s)
-          echo "Commit 时间戳: $TIMESTAMP"
-          
-          # 5. 重新打包（使用与 OpenWrt 相同的参数）
+          commit_ts="$(curl -fsSL --retry 3 --retry-delay 10 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${UPSTREAM_REPO}/commits/${version}" | jq -r '.commit.committer.date // empty')"
+
+          if [ -z "${commit_ts}" ]; then
+            echo "无法获取 commit 时间戳"
+            exit 1
+          fi
+
+          timestamp="$(date -d "${commit_ts}" +%s)"
+          echo "Commit 时间戳: ${timestamp}"
+
           echo "重新打包..."
-          # GZIP=-n 确保 gzip 不存储文件名和时间戳，保证可重复构建
           GZIP=-n tar --numeric-owner --owner=0 --group=0 --sort=name --mode=a-s \
-              --mtime="@${TIMESTAMP}" \
-              -C untar -czf "${SUBDIR}.tar.gz" "$SUBDIR"
-          
-          # 6. 计算 SHA256 hash
-          HASH=$(sha256sum "${SUBDIR}.tar.gz" | cut -d ' ' -f 1)
-          echo "hash=$HASH" >> $GITHUB_OUTPUT
-          echo "新版本 hash: $HASH"
-          
-          # 清理
-          cd -
-          rm -rf "$WORK_DIR"
+              --mtime="@${timestamp}" \
+              -C untar -czf "${subdir}.tar.gz" "${subdir}"
+
+          hash="$(sha256sum "${subdir}.tar.gz" | cut -d ' ' -f 1)"
+          echo "hash=${hash}" >> "${GITHUB_OUTPUT}"
+          echo "新版本 hash: ${hash}"
 
       - name: Update Makefile
-        if: steps.compare.outputs.need_update == 'true'
+        if: steps.meta.outputs.need_update == 'true'
         run: |
-          VERSION="${{ steps.upstream.outputs.version }}"
-          PKG_VERSION="${{ steps.upstream.outputs.pkg_version }}"
-          HASH="${{ steps.hash.outputs.hash }}"
-          
-          # 更新 PKG_VERSION（release 发布日期）
-          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${PKG_VERSION}/" nikki/Makefile
-          # 更新 PKG_SOURCE_VERSION（git tag）
-          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${VERSION}/" nikki/Makefile
-          # 更新哈希值
-          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${HASH}/" nikki/Makefile
-          
+          set -euo pipefail
+
+          makefile="${MAKEFILE_PATH}"
+          version="${{ steps.meta.outputs.latest_version }}"
+          pkg_version="${{ steps.meta.outputs.pkg_version }}"
+          hash="${{ steps.hash.outputs.hash }}"
+
+          sed -i -E "s/^([[:space:]]*PKG_VERSION:=).*/\\1${pkg_version}/" "${makefile}"
+          sed -i -E "s/^([[:space:]]*PKG_SOURCE_VERSION:=).*/\\1${version}/" "${makefile}"
+          sed -i -E "s/^([[:space:]]*PKG_MIRROR_HASH:=).*/\\1${hash}/" "${makefile}"
+
           echo "Makefile 已更新:"
-          grep -E "PKG_VERSION|PKG_SOURCE_VERSION|PKG_MIRROR_HASH" nikki/Makefile
+          grep -E "^[[:space:]]*(PKG_VERSION|PKG_SOURCE_VERSION|PKG_MIRROR_HASH):=" "${makefile}"
 
       - name: Commit and push changes
-        if: steps.compare.outputs.need_update == 'true'
+        if: steps.meta.outputs.need_update == 'true'
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nikki/Makefile
-          git commit -m "chore: update mihomo to ${{ steps.upstream.outputs.version }}"
+          git add "${MAKEFILE_PATH}"
+
+          if git diff --cached --quiet; then
+            echo "没有需要提交的变更"
+            exit 0
+          fi
+
+          git commit -m "chore: update mihomo to ${{ steps.meta.outputs.latest_version }}"
           git push
 
       - name: Delete Workflow Runs
