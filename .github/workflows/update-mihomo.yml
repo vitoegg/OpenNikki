@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine versions
         id: meta
@@ -236,9 +236,11 @@ jobs:
             && echo "Telegram 通知发送成功" || echo "Telegram 通知发送失败"
 
       - name: Delete Workflow Runs
-        uses: Mattraks/delete-workflow-runs@v2
+        uses: ophub/delete-releases-workflows@main
         with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 1
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 0
