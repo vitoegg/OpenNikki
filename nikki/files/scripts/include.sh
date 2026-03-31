@@ -33,6 +33,7 @@ HIJACK_UT="$UCODE_DIR/hijack.ut"
 SH_DIR="$HOME_DIR/scripts"
 INCLUDE_SH="$SH_DIR/include.sh"
 FIREWALL_INCLUDE_SH="$SH_DIR/firewall_include.sh"
+DNS_GATEWAY_SH="$SH_DIR/dns_gateway.sh"
 
 # nftables
 NFT_DIR="$HOME_DIR/nftables"
