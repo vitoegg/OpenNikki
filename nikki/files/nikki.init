@@ -392,22 +392,23 @@ service_started() {
 			ip link set dev "$dummy_device" up
 			ip -6 route add "$fake_ip6_range" dev "$dummy_device"
 		fi
-			# hijack
-			utpl -S "$HIJACK_UT" | nft -f -
-			# check hijack
-			if nft list tables | grep -q nikki; then
-				log "Proxy" "Hijack successful."
-			else
-				log "Proxy" "Hijack failed."
-				log "App" "Exit."
-			fi
-			$DNS_GATEWAY_SH apply
-			if nft list tables | grep -q dns_gateway; then
-				log "DNS" "Gateway ready."
-			else
-				log "DNS" "Gateway setup failed."
-			fi
+		# hijack
+		utpl -S "$HIJACK_UT" | nft -f -
+		# check hijack
+		if nft list tables | grep -q nikki; then
+			log "Proxy" "Hijack successful."
+		else
+			log "Proxy" "Hijack failed."
+			log "App" "Exit."
 		fi
+		# dns gateway
+		$DNS_GATEWAY_SH apply
+		if nft list tables | grep -q dns_gateway; then
+			log "DNS" "Gateway ready."
+		else
+			log "DNS" "Gateway setup failed."
+		fi
+	fi
 }
 
 service_stopped() {

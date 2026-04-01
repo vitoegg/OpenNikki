@@ -2,24 +2,32 @@
 
 . "$IPKG_INSTROOT/etc/nikki/scripts/include.sh"
 
+# MosDNS cgroupv2 路径，防止 DNS 回环
+MOSDNS_CGROUP="services/mosdns"
+MOSDNS_CGROUP_LEVEL=2
+
 apply() {
 	cleanup
 
-	nft add table inet dns_gateway
-	nft add chain inet dns_gateway prerouting '{ type nat hook prerouting priority -110; policy accept; }'
-	nft add chain inet dns_gateway output '{ type nat hook output priority -110; policy accept; }'
-
-	nft add rule inet dns_gateway prerouting 'meta nfproto ipv4 udp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway prerouting 'meta nfproto ipv4 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway prerouting 'meta nfproto ipv6 udp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway prerouting 'meta nfproto ipv6 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-
-	nft add rule inet dns_gateway output 'socket cgroupv2 level 2 "services/mosdns" udp dport 53 counter return comment "DNS Gateway Bypass"'
-	nft add rule inet dns_gateway output 'socket cgroupv2 level 2 "services/mosdns" tcp dport 53 counter return comment "DNS Gateway Bypass"'
-	nft add rule inet dns_gateway output 'meta nfproto ipv4 udp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway output 'meta nfproto ipv4 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway output 'meta nfproto ipv6 udp dport 53 counter redirect to :5533 comment "DNS Gateway"'
-	nft add rule inet dns_gateway output 'meta nfproto ipv6 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"'
+	nft -f - <<-EOF
+	table inet dns_gateway {
+		chain prerouting {
+			type nat hook prerouting priority -110; policy accept;
+			meta nfproto ipv4 udp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv4 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv6 udp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv6 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"
+		}
+		chain output {
+			type nat hook output priority -110; policy accept;
+			socket cgroupv2 level $MOSDNS_CGROUP_LEVEL "$MOSDNS_CGROUP" counter return comment "MosDNS bypass"
+			meta nfproto ipv4 udp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv4 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv6 udp dport 53 counter redirect to :5533 comment "DNS Gateway"
+			meta nfproto ipv6 tcp dport 53 counter redirect to :5533 comment "DNS Gateway"
+		}
+	}
+	EOF
 }
 
 cleanup() {
