@@ -26,6 +26,20 @@ src-git nikki https://github.com/vitoegg/OpenNikki.git
 LuCI -> Applications -> luci-app-nikki
 ```
 
+## DNS Gateway
+
+通过 nftables 将所有 DNS 流量（端口 53）重定向至 MosDNS（端口 5533），实现 DNS 分流。包含 LAN 流量和本机流量的重定向，并通过 cgroupv2 匹配避免 MosDNS 自身的 DNS 回环。
+
+### 涉及文件
+
+| 文件 | 代码位置 | 说明 |
+|------|----------|------|
+| `nikki/files/scripts/dns_gateway.sh` | 完整文件 | DNS Gateway nftables 规则，原子加载 |
+| `nikki/files/scripts/include.sh` | `DNS_GATEWAY_SH` 变量声明 | 注册脚本路径变量 |
+| `nikki/files/nikki.init` | `service_started()` 函数 | 调用 `$DNS_GATEWAY_SH apply` 并校验结果 |
+| `nikki/files/nikki.init` | `cleanup()` 函数 | 调用 `$DNS_GATEWAY_SH cleanup` 清除规则 |
+| `nikki/Makefile` | `define Package/nikki/install` | 安装脚本至目标路径 |
+
 ## 自动更新
 
 本项目通过 GitHub Actions 每天自动检查 Mihomo 上游更新。当检测到新版本时，会自动更新 Makefile 中的版本号和哈希值。
