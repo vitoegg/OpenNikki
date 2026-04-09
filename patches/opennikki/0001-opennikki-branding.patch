@@ -1,0 +1,133 @@
+diff --git a/README.md b/README.md
+index b1133df..0e0e0be 100644
+--- a/README.md
++++ b/README.md
+@@ -1,116 +1,20 @@
+-![GitHub License](https://img.shields.io/github/license/nikkinikki-org/OpenWrt-nikki?style=for-the-badge&logo=github) ![GitHub Tag](https://img.shields.io/github/v/release/nikkinikki-org/OpenWrt-nikki?style=for-the-badge&logo=github) ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/nikkinikki-org/OpenWrt-nikki/total?style=for-the-badge&logo=github) ![GitHub Repo stars](https://img.shields.io/github/stars/nikkinikki-org/OpenWrt-nikki?style=for-the-badge&logo=github) [![Telegram](https://img.shields.io/badge/Telegram-gray?style=for-the-badge&logo=telegram)](https://t.me/nikkinikki_org)
++# OpenNikki
+
+-English | [中文](README.zh.md)
++OpenNikki 基于 `nikkinikki-org/OpenWrt-nikki` 维护，自动更新 Mihomo 内核版本，以及在同步上游后手动应用 OpenNikki 的自定义 patch。
+ 
+-# Nikki
++## 自动更新内容
+ 
+-Transparent Proxy with Mihomo on OpenWrt.
++仓库内置 GitHub Actions，会跟踪 [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) 的最新版本。
++检测到新版本后，会自动更新 `nikki/Makefile` 中的 Mihomo 版本号与校验值。
+ 
+-## Prerequisites
++## 手动 Patch
+ 
+-- OpenWrt >= 24.10
+-- Linux Kernel >= 5.13
+-- firewall4
++OpenNikki 的定制改动保存在 `patches/opennikki/`。
++当上游代码更新后，可先检查，再在新的上游源码目录中应用 patch：
+ 
+-## Feature
+-
+-- Transparent Proxy (Redirect/TPROXY/TUN, IPv4 and/or IPv6)
+-- Access Control
+-- Profile Mixin
+-- Profile Editor
+-- Scheduled Restart
+-
+-## Install & Update
+-
+-### A. Install From Feed (Recommended)
+-
+-1. Add Feed
+-
+-```shell
+-# only needs to be run once
+-wget -O - https://github.com/nikkinikki-org/OpenWrt-nikki/raw/refs/heads/main/feed.sh | ash
+-```
+-
+-2. Install
+-
+-```shell
+-# you can install from shell or `Software` menu in LuCI
+-# for opkg
+-opkg install nikki
+-opkg install luci-app-nikki
+-opkg install luci-i18n-nikki-zh-cn
+-# for apk
+-apk add nikki
+-apk add luci-app-nikki
+-apk add luci-i18n-nikki-zh-cn
+-```
+-
+-### B. Install From Release
+-
+-```shell
+-wget -O - https://github.com/nikkinikki-org/OpenWrt-nikki/raw/refs/heads/main/install.sh | ash
+-```
+-
+-## Uninstall & Reset
+-
+-```shell
+-wget -O - https://github.com/nikkinikki-org/OpenWrt-nikki/raw/refs/heads/main/uninstall.sh | ash
+-```
+-
+-## How To Use
+-
+-See [Wiki](https://github.com/nikkinikki-org/OpenWrt-nikki/wiki)
+-
+-## How does it work
+-
+-1. Mixin and Update profile.
+-2. Run mihomo.
+-3. Set scheduled restart.
+-4. Set ip rule/route
+-5. Generate nftables and apply it.
+-
+-Note that the steps above may change base on config.
+-
+-## Compilation
+-
+-```shell
+-# add feed
+-echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> "feeds.conf.default"
+-# update & install feeds
+-./scripts/feeds update -a
+-./scripts/feeds install -a
+-# make package
+-make package/luci-app-nikki/compile
++```bash
++sh scripts/apply-opennikki-patches.sh --check /path/to/upstream-repo
++sh scripts/apply-opennikki-patches.sh /path/to/upstream-repo
+ ```
+ 
+-The package files will be found under `bin/packages/your_architecture/nikki`.
+-
+-## Dependencies
+-
+-- ca-bundle
+-- curl
+-- yq
+-- firewall4
+-- ip-full
+-- kmod-inet-diag
+-- kmod-nft-socket
+-- kmod-nft-tproxy
+-- kmod-tun
+-- kmod-dummy
+-
+-## Contributors
+-
+-[![Contributors](https://contrib.rocks/image?repo=nikkinikki-org/OpenWrt-nikki)](https://github.com/nikkinikki-org/OpenWrt-nikki/graphs/contributors)
+-
+-## Special Thanks
+-
+-- [@ApoisL](https://github.com/apoiston)
+-- [@xishang0128](https://github.com/xishang0128)
+-
+-## Recommended Proxy Provider
+-
+-Perfect Link is recommended
+-
+-All route on IEPL, All exit node at Akari, reliable and easy to use
+-
+-[Official Website](https://perfectlink.io) | [Customer Service](https://t.me/PerfectlinksupportBot)
++如果 patch 可以全部应用，就按结果提交；如果失败，按脚本输出处理冲突后再重新整理 patch。

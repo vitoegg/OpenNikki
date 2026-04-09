@@ -1,0 +1,143 @@
+name: Sync Nikki App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream-with-patches
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: nikkinikki-org/OpenWrt-nikki
+  UPSTREAM_REF: main
+  TARGET_BRANCH: master
+
+jobs:
+  sync:
+    name: Sync upstream and apply patches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync upstream and apply patches
+        id: sync
+        run: |
+          set -eu
+
+          temp_dir="$(mktemp -d)"
+          custom_bundle="$temp_dir/custom-files.tar.gz"
+          custom_list="$temp_dir/custom-files.list"
+          upstream_dir="$temp_dir/upstream"
+          apply_log="$temp_dir/apply.log"
+          patch_status="success"
+
+          cleanup() {
+            rm -rf "$temp_dir"
+          }
+
+          trap cleanup EXIT
+
+          : > "$custom_list"
+          cat <<'EOF' | while IFS= read -r path; do
+          patches
+          scripts
+          docs/patch-workflow.md
+          .github/workflows/sync-upstream-patches.yml
+          EOF
+            [ -n "$path" ] || continue
+            [ -e "$path" ] || continue
+            printf '%s\n' "$path" >> "$custom_list"
+          done
+
+          tar -czf "$custom_bundle" -T "$custom_list"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || \
+            git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "${UPSTREAM_REF}"
+
+          upstream_sha="$(git rev-parse "upstream/${UPSTREAM_REF}")"
+          echo "upstream_sha=${upstream_sha}" >> "${GITHUB_OUTPUT}"
+
+          mkdir -p "$upstream_dir"
+          git archive "upstream/${UPSTREAM_REF}" | tar -x -C "$upstream_dir"
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+
+          cp -R "$upstream_dir"/. .
+          tar -xzf "$custom_bundle" -C .
+
+          chmod +x scripts/*.sh
+
+          if ! sh scripts/apply-opennikki-patches.sh . >"$apply_log" 2>&1; then
+            patch_status="conflict"
+          fi
+
+          echo "patch_status=${patch_status}" >> "${GITHUB_OUTPUT}"
+
+          if [ "$patch_status" = "conflict" ]; then
+            {
+              echo "## Upstream sync result"
+              echo
+              echo "- Status: conflict"
+              echo "- Upstream SHA: \`${upstream_sha}\`"
+              echo
+              echo "### Apply log"
+              echo '```text'
+              cat "$apply_log"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "PATCH_STATUS=conflict"
+            exit 0
+          fi
+
+          if git diff --quiet; then
+            {
+              echo "## Upstream sync result"
+              echo
+              echo "- Status: no changes"
+              echo "- Upstream SHA: \`${upstream_sha}\`"
+              echo "- Target branch: \`${TARGET_BRANCH}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          short_upstream_sha="$(printf '%s' "${upstream_sha}" | cut -c1-7)"
+
+          git add -A
+          git commit -m "sync: upstream ${short_upstream_sha}" \
+            -m "Source: ${UPSTREAM_REPO}@${upstream_sha}" \
+            -m "Mode: apply OpenNikki patches"
+          git push origin HEAD:master
+
+          {
+            echo "## Upstream sync result"
+            echo
+            echo "- Status: pushed"
+            echo "- Upstream SHA: \`${upstream_sha}\`"
+            echo "- Target branch: \`${TARGET_BRANCH}\`"
+            echo "- Commit: \`$(git rev-parse HEAD)\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Delete Workflow Runs
+        uses: ophub/delete-releases-workflows@main
+        with:
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 0
