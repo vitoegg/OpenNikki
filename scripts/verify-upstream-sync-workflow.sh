@@ -2,7 +2,7 @@
 
 set -eu
 
-WORKFLOW_PATH=".github/workflows/sync-upstream-patches.yml"
+WORKFLOW_PATH=".github/workflows/sync-nikki-app.yml"
 TEMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -13,7 +13,7 @@ trap cleanup EXIT INT TERM
 
 test -f "$WORKFLOW_PATH"
 
-grep -Fq "name: Sync Upstream With Patches" "$WORKFLOW_PATH"
+grep -Fq "name: Sync Nikki App" "$WORKFLOW_PATH"
 grep -Fq "workflow_dispatch:" "$WORKFLOW_PATH"
 ! grep -Fq "schedule:" "$WORKFLOW_PATH"
 grep -Fq "contents: write" "$WORKFLOW_PATH"
@@ -39,15 +39,25 @@ if printf '%s\n' "$PACK_SECTION" | grep -Fq '.github/workflows/update-mihomo.yml
 	exit 1
 fi
 
+if printf '%s\n' "$PACK_SECTION" | grep -Fq '.github/workflows/update-mihomo-core.yml'; then
+	echo "update-mihomo-core workflow must not be restored before patch apply" >&2
+	exit 1
+fi
+
+if ! printf '%s\n' "$PACK_SECTION" | grep -Fq '.github/workflows/sync-nikki-app.yml'; then
+	echo "sync workflow must be restored after upstream sync" >&2
+	exit 1
+fi
+
 sh -eu -c '
   temp_dir="$1"
   custom_bundle="$temp_dir/custom-files.tar.gz"
   custom_list="$temp_dir/custom-files.list"
-  paths="
+paths="
 patches
 scripts
 docs/patch-workflow.md
-.github/workflows/sync-upstream-patches.yml
+.github/workflows/sync-nikki-app.yml
 "
   : > "$custom_list"
   printf "%s\n" "$paths" | while IFS= read -r path; do

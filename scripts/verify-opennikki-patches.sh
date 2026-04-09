@@ -27,12 +27,13 @@ git -C "$UPSTREAM_DIR" commit -q -m "baseline snapshot"
 
 sh "$REPO_ROOT/scripts/apply-opennikki-patches.sh" "$UPSTREAM_DIR"
 
-test -f "$UPSTREAM_DIR/.github/workflows/update-mihomo.yml"
+test -f "$UPSTREAM_DIR/.github/workflows/update-mihomo-core.yml"
 test -f "$UPSTREAM_DIR/nikki/files/scripts/dns_gateway.sh"
 test ! -e "$UPSTREAM_DIR/feed.sh"
 test ! -e "$UPSTREAM_DIR/install.sh"
 test ! -e "$UPSTREAM_DIR/uninstall.sh"
 test ! -e "$UPSTREAM_DIR/README.zh.md"
+test ! -e "$UPSTREAM_DIR/.github/workflows/update-mihomo.yml"
 
 grep -Fq '# OpenNikki' "$UPSTREAM_DIR/README.md"
 grep -Fq '## 自动更新内容' "$UPSTREAM_DIR/README.md"
@@ -43,6 +44,6 @@ grep -Fq 'DNS_GATEWAY_SH="$SH_DIR/dns_gateway.sh"' "$UPSTREAM_DIR/nikki/files/sc
 grep -Fq '$DNS_GATEWAY_SH apply' "$UPSTREAM_DIR/nikki/files/nikki.init"
 grep -Fq '$DNS_GATEWAY_SH cleanup' "$UPSTREAM_DIR/nikki/files/nikki.init"
 grep -Fq '$(INSTALL_BIN) $(CURDIR)/files/scripts/dns_gateway.sh $(1)/etc/nikki/scripts/dns_gateway.sh' "$UPSTREAM_DIR/nikki/Makefile"
-grep -Fq 'name: Update Mihomo' "$UPSTREAM_DIR/.github/workflows/update-mihomo.yml"
+grep -Fq 'name: Update Mihomo Core' "$UPSTREAM_DIR/.github/workflows/update-mihomo-core.yml"
 
 printf 'Patch verification succeeded against baseline %s\n' "$BASELINE_COMMIT"

@@ -56,7 +56,7 @@ jobs:
           patches
           scripts
           docs/patch-workflow.md
-          .github/workflows/sync-upstream-patches.yml
+          .github/workflows/sync-nikki-app.yml
           EOF
             [ -n "$path" ] || continue
             [ -e "$path" ] || continue

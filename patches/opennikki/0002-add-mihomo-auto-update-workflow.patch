@@ -1,10 +1,10 @@
-diff --git a/.github/workflows/update-mihomo.yml b/.github/workflows/update-mihomo.yml
+diff --git a/.github/workflows/update-mihomo-core.yml b/.github/workflows/update-mihomo-core.yml
 new file mode 100644
 index 0000000000000000000000000000000000000000..100c364f10ef756316ed044c5a0a10efc5b05d18
 --- /dev/null
-+++ b/.github/workflows/update-mihomo.yml
++++ b/.github/workflows/update-mihomo-core.yml
 @@ -0,0 +1,246 @@
-+name: Update Mihomo
++name: Update Mihomo Core
 +
 +on:
 +  schedule:
@@ -18,7 +18,7 @@ index 0000000000000000000000000000000000000000..100c364f10ef756316ed044c5a0a10ef
 +  actions: write
 +
 +concurrency:
-+  group: update-mihomo
++  group: update-mihomo-core
 +  cancel-in-progress: false
 +
 +jobs:
